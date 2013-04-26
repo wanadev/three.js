@@ -3,7 +3,7 @@
  * @author Larry Battle / http://bateru.com/news
  */
 
-var THREE = THREE || { REVISION: '58dev' };
+var THREE = THREE || { REVISION: '58' };
 
 self.console = self.console || {
 
@@ -34157,6 +34157,8 @@ THREE.CameraHelper = function ( camera ) {
 	this.matrixAutoUpdate = false;
 
 	this.pointMap = pointMap;
+
+	this.update();
 
 };
 
