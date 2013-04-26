@@ -241,6 +241,13 @@ THREE.RGB_PVRTC_2BPPV1_Format = 2101;
 THREE.RGBA_PVRTC_4BPPV1_Format = 2102;
 THREE.RGBA_PVRTC_2BPPV1_Format = 2103;
 */
+
+// Texture patterns
+THREE.NoPattern = 3000;
+THREE.FacePattern = 3001;
+THREE.WholePattern = 3002;
+THREE.PlanePattern = 3003;
+
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -12762,8 +12769,8 @@ THREE.Texture = function ( image, mapping, wrapS, wrapT, magFilter, minFilter, f
 
 	this.mapping = mapping !== undefined ? mapping : new THREE.UVMapping();
 
-	this.wrapS = wrapS !== undefined ? wrapS : THREE.ClampToEdgeWrapping;
-	this.wrapT = wrapT !== undefined ? wrapT : THREE.ClampToEdgeWrapping;
+	this.wrapS = wrapS !== undefined ? wrapS : THREE.RepeatWrapping;
+	this.wrapT = wrapT !== undefined ? wrapT : THREE.RepeatWrapping;
 
 	this.magFilter = magFilter !== undefined ? magFilter : THREE.LinearFilter;
 	this.minFilter = minFilter !== undefined ? minFilter : THREE.LinearMipMapLinearFilter;
@@ -19550,6 +19557,36 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	};
 
+	function bufferGuessUV(material) {
+		// Priorities
+		//	1. color map
+		//	2. specular map
+		//	3. normal map
+		//	4. bump map
+		var uvMap;
+
+		if(material.map) {
+
+			uvMap = material.map;
+
+		} else if(material.specularMap) {
+
+			uvMap = material.specularMap;
+
+		} else if(material.normalMap) {
+
+			uvMap = material.normalMap;
+
+		} else if(material.bumpMap) {
+
+			uvMap = material.bumpMap;
+		} else {
+			uvMap = undefined;
+		}
+
+		return uvMap;
+	}
+
 	//
 
 	function initDirectBuffers( geometry ) {
@@ -20262,6 +20299,7 @@ THREE.WebGLRenderer = function ( parameters ) {
 		var normalType = bufferGuessNormalType( material ),
 		vertexColorType = bufferGuessVertexColorType( material ),
 		uvType = bufferGuessUVType( material ),
+		uvMap = bufferGuessUV(material),
 
 		needsSmoothNormals = ( normalType === THREE.SmoothShading );
 
@@ -21034,14 +21072,31 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 			}
 
-			if ( offset_uv2 > 0 ) {
-
-				_gl.bindBuffer( _gl.ARRAY_BUFFER, geometryGroup.__webglUV2Buffer );
-				_gl.bufferData( _gl.ARRAY_BUFFER, uv2Array, hint );
-
-			}
-
 		}
+
+		if (uvMap && uvType) {
+			if ((dirtyUvs || dirtyVertices) && uvMap.patternMode && uvMap.patternMode != THREE.noPattern) {
+				// When the texture pattern is set to preserve the ratio geometry_length/texture/length
+				if (obj_uvs) {
+					computeMeshUVPattern(uvMap,obj_uvs,uvArray,chunk_faces3,chunk_faces4,object,obj_faces,vertices,object.scale);
+				}
+				if (obj_uvs2) {
+					computeMeshUVPattern(uvMap,obj_uvs2,uv2Array,chunk_faces3,chunk_faces4,object,obj_faces,vertices,object.scale);
+				}
+			}
+		}
+
+		//Update UV buffers
+		if(offset_uv > 0) {
+			_gl.bindBuffer(_gl.ARRAY_BUFFER, geometryGroup.__webglUVBuffer);
+			_gl.bufferData(_gl.ARRAY_BUFFER, uvArray, hint);
+		}
+
+		if(offset_uv2 > 0) {
+			_gl.bindBuffer(_gl.ARRAY_BUFFER, geometryGroup.__webglUV2Buffer);
+			_gl.bufferData(_gl.ARRAY_BUFFER, uv2Array, hint);
+		}
+
 
 		if ( dirtyElements ) {
 
@@ -21710,6 +21765,234 @@ THREE.WebGLRenderer = function ( parameters ) {
 		}
 
 	};
+
+	// UV adjusting to apply textures as patterns
+
+	function computeMeshUVPattern (uvMap,uvRef,uvArrRef,chunk_faces3,chunk_faces4,object,obj_faces,vertices,scale) {
+
+		var patternMode = uvMap.patternMode;
+		var globalRatio = (patternMode == THREE.WholePattern || patternMode == THREE.FacePattern) ? 4 : 0.4;
+		var uvdiff1, uvdiff2, uvdiff3, uvdiff4;
+		var localUVMatrix;
+		var imageRes;
+		var v,v12,v32,v41,v43,v31;
+		var uSum = 0;
+		var vSum = 0;
+		var l43, l12, l32, l41;
+		var factoru,factorv;
+		var uvRef, uvArrRef;
+		var area = 0,area12 = 0;
+		var norm12;
+		var nb3 = 0, nb4 = 0;
+
+		var ratio = function(x,y) {
+			if (Math.abs(y) < 1e-5) return 0;
+			else return Math.abs(x/y);
+		}
+
+		offset_uv = 0;
+		/* ATTENTION AUCUN EFFET*/
+		imageRes = new THREE.Vector2(uvMap.image.width, uvMap.image.height);
+		if (imageRes.x == 0 || imageRes.y == 0) {
+			imageRes.x =512;
+			imageRes.y =512;
+		}
+		// On part toujours de 512 px, à voir si cela doit être revu
+		imageRes.x = 512;
+		imageRes.y = 512;
+
+		//Face3s
+		uvdiff1 = new THREE.Vector2();
+		uvdiff2 = new THREE.Vector2();
+		uvdiff3 = new THREE.Vector2();
+		v1 = new THREE.Vector3();
+		v2 = new THREE.Vector3();
+		v3 = new THREE.Vector3();
+		v = new THREE.Vector3();
+		v12 = new THREE.Vector3();
+		v32 = new THREE.Vector3();
+		v31 = new THREE.Vector3();
+
+		if (patternMode == THREE.WholePattern) { 
+			if (chunk_faces3[0] !== undefined) {
+				face = obj_faces[chunk_faces3[0]];
+				uv = uvRef[chunk_faces3[0]];
+			} else {
+				face = obj_faces[chunk_faces4[0]];
+				uv = uvRef[chunk_faces4[0]];
+			}
+
+			if (!face) return;
+
+			v1.multiplyVectors(vertices[face.a], scale);
+			v2.multiplyVectors(vertices[face.b], scale);
+			v3.multiplyVectors(vertices[face.c], scale);
+
+			v12.subVectors(v1,v2);
+			v32.subVectors(v3,v2);
+
+			var ZAXIS = face.normal.clone().normalize();
+			var YAXIS = uvMap.ruler ? uvMap.ruler.clone().normalize() : new THREE.Vector3(0,1,0);
+			var XAXIS = YAXIS.clone().cross(ZAXIS);
+			localUVMatrix = new THREE.Matrix3(XAXIS.x,XAXIS.y,XAXIS.z,
+											  YAXIS.x,YAXIS.y,YAXIS.z,
+											  ZAXIS.x,ZAXIS.Y,ZAXIS.z);
+
+			var V32 = v32.clone().applyMatrix3(localUVMatrix);
+			var V12 = v12.clone().applyMatrix3(localUVMatrix);
+
+			uvdiff1.set(Math.abs(uv[0].x - uv[1].x)*imageRes.x, Math.abs(uv[0].y - uv[1].y)*imageRes.y);
+			uvdiff2.set(Math.abs(uv[1].x - uv[2].x)*imageRes.x, Math.abs(uv[1].y - uv[2].y)*imageRes.y);
+
+
+			uSum = ratio(uvdiff2.x,V32.x);
+			vSum = ratio(uvdiff2.y,V32.y);
+			uSum = uSum == 0 ? ratio(uvdiff1.x,V12.x) : uSum;
+			vSum = vSum == 0 ? ratio(uvdiff1.y,V12.y) : vSum;
+		}
+
+		for(f = 0, fl = chunk_faces3.length; f < fl; f++) {
+			fi = chunk_faces3[f];
+			uv = uvRef[fi];
+
+			if(uv === undefined) continue;
+
+			face = obj_faces[fi];
+			v1.multiplyVectors(vertices[face.a], scale);
+			v2.multiplyVectors(vertices[face.b], scale);
+			v3.multiplyVectors(vertices[face.c], scale);
+
+			uvdiff1.set(Math.abs(uv[0].x - uv[1].x)*imageRes.x, Math.abs(uv[0].y - uv[1].y)*imageRes.y);
+			uvdiff2.set(Math.abs(uv[1].x - uv[2].x)*imageRes.x, Math.abs(uv[1].y - uv[2].y)*imageRes.y);
+			uvdiff3.set(Math.abs(uv[2].x - uv[0].x)*imageRes.x, Math.abs(uv[2].y - uv[0].y)*imageRes.y);
+
+			v12.subVectors(v1,v2);
+			v32.subVectors(v3,v2);
+			v31.subVectors(v3,v1);
+			l12 = v12.length();
+			l32 = v32.length();
+			l31 = v31.length();
+
+			factoru = 0;
+			factorv = 0;
+
+			if (patternMode == THREE.PlanePattern) {
+				if (v12.z == 0 && v31.z == 0 && v32.z == 0) {
+					uSum += (ratio(uvdiff2.x,v32.x) + ratio(uvdiff1.x,v12.x) + ratio(uvdiff3.x,v31.x))/3;
+					vSum += (ratio(uvdiff2.y,v32.y) + ratio(uvdiff1.y,v12.y) + ratio(uvdiff3.y,v31.y))/3;
+					nb3++;
+				}
+			}
+
+
+			if (patternMode == THREE.FacePattern) {
+				for(i = 0; i < 3; i++) {
+					uvi = uv[i];
+					if(i == 0) {
+						factoru = uvdiff3.x/l31 + uvdiff1.x/l12;
+						factorv = uvdiff3.y/l31 + uvdiff1.y/l12;
+					} else if(i == 1) {
+						factoru = uvdiff2.x/l32 + uvdiff1.x/l12;
+						factorv = uvdiff2.y/l32 + uvdiff1.y/l12;
+					} else if(i == 2) {
+						factoru = uvdiff3.x/l31 + uvdiff2.x/l32;
+						factorv = uvdiff3.y/l31 + uvdiff2.y/l32;
+					} 
+					uvArrRef[offset_uv] *= globalRatio / factoru;
+					uvArrRef[offset_uv + 1] *= globalRatio / factorv; 
+					offset_uv += 2;
+				} 
+			}
+
+
+		}
+
+		//Face4s
+		uvdiff1 = new THREE.Vector2();
+		uvdiff2 = new THREE.Vector2();
+		uvdiff3 = new THREE.Vector2();
+		uvdiff4 = new THREE.Vector2();
+		v1 = new THREE.Vector3();
+		v2 = new THREE.Vector3();
+		v3 = new THREE.Vector3();
+		v4 = new THREE.Vector3();
+		v = new THREE.Vector3();
+		v12 = new THREE.Vector3();
+		v32 = new THREE.Vector3();
+		v43 = new THREE.Vector3();
+		v41 = new THREE.Vector3();
+
+		for(f = 0, fl = chunk_faces4.length; f < fl; f++) {
+			fi = chunk_faces4[f];
+			uv = uvRef[fi];
+
+			if(uv === undefined) continue;
+
+			face = obj_faces[fi];
+			v1.multiplyVectors(vertices[face.a], scale);
+			v2.multiplyVectors(vertices[face.b], scale);
+			v3.multiplyVectors(vertices[face.c], scale);
+			v4.multiplyVectors(vertices[face.d], scale);
+
+			uvdiff1.set(Math.abs(uv[0].x - uv[1].x)*imageRes.x, Math.abs(uv[0].y - uv[1].y)*imageRes.y);
+			uvdiff2.set(Math.abs(uv[1].x - uv[2].x)*imageRes.x, Math.abs(uv[1].y - uv[2].y)*imageRes.y);
+			uvdiff3.set(Math.abs(uv[2].x - uv[3].x)*imageRes.x, Math.abs(uv[2].y - uv[3].y)*imageRes.y);
+			uvdiff4.set(Math.abs(uv[3].x - uv[0].x)*imageRes.x, Math.abs(uv[3].y - uv[0].y)*imageRes.y);
+
+			v43.subVectors(v4,v3);
+			v12.subVectors(v1,v2);
+			v32.subVectors(v3,v2);
+			v41.subVectors(v4,v1);
+			l43 = v43.length();
+			l12 = v12.length();
+			l32 = v32.length();
+			l41 = v41.length();
+
+			factoru = 0;
+			factorv = 0;
+
+			if (patternMode == THREE.PlanePattern) {
+				if (v12.z == 0 && v32.z == 0 && v41.z == 0 && v43.z == 0) {
+					uSum += (ratio(uvdiff2.x,v32.x) + ratio(uvdiff1.x,v12.x) + ratio(uvdiff3.x,v43.x) + ratio(uvdiff4.x,v41.x))/4;
+					vSum += (ratio(uvdiff2.y,v32.y) + ratio(uvdiff1.y,v12.y) + ratio(uvdiff3.y,v43.y) + ratio(uvdiff4.y,v41.y))/4;
+					nb4++;
+				}
+			}
+
+			if (patternMode == THREE.FacePattern) {
+				for(i = 0; i < 4; i++) {
+					uvi = uv[i];
+					if(i == 0) {
+						factoru = uvdiff2.x/l32 + uvdiff1.x/l12;
+						factorv = uvdiff2.y/l32 + uvdiff1.y/l12;
+					} else if(i == 1) {
+						factoru = uvdiff2.x/l32 + uvdiff3.x/l43;
+						factorv = uvdiff2.y/l32 + uvdiff3.y/l43;
+					} else if(i == 2) {
+						factoru = uvdiff3.x/l43 + uvdiff4.x/l41;
+						factorv = uvdiff3.y/l43 + uvdiff4.y/l41;
+					} else if(i == 3) {
+						factoru = uvdiff1.x/l12 + uvdiff4.x/l41;
+						factorv = uvdiff1.y/l12 + uvdiff4.y/l41;
+					}
+					uvArrRef[offset_uv] *= globalRatio / factoru;
+					uvArrRef[offset_uv + 1] *= globalRatio / factorv; 
+					offset_uv += 2;
+				}
+			}
+		}
+
+		if (patternMode == THREE.PlanePattern) {
+			area = 1;
+			uvMap.patternU = uSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / uSum * area;
+			uvMap.patternV = vSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / vSum * area;
+		}
+
+		if (patternMode == THREE.WholePattern) {
+			uvMap.patternU = uSum == 0 ? 1 : globalRatio / uSum;
+			uvMap.patternV = vSum == 0 ? 1 : globalRatio / vSum;
+		}
+	}
 
 	// Buffer rendering
 
@@ -23747,7 +24030,11 @@ THREE.WebGLRenderer = function ( parameters ) {
 			var offset = uvScaleMap.offset;
 			var repeat = uvScaleMap.repeat;
 
-			uniforms.offsetRepeat.value.set( offset.x, offset.y, repeat.x, repeat.y );
+			if (uvScaleMap.patternMode == THREE.WholePattern || uvScaleMap.patternMode == THREE.PlanePattern) {
+				uniforms.offsetRepeat.value.set( offset.x, offset.y, repeat.x * uvScaleMap.patternU, repeat.y * uvScaleMap.patternV);
+			} else {
+				uniforms.offsetRepeat.value.set( offset.x, offset.y, repeat.x, repeat.y);
+			}
 
 		}
 
@@ -34157,8 +34444,6 @@ THREE.CameraHelper = function ( camera ) {
 	this.matrixAutoUpdate = false;
 
 	this.pointMap = pointMap;
-
-	this.update();
 
 };
 
