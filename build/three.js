@@ -247,7 +247,6 @@ THREE.NoPattern = 3000;
 THREE.FacePattern = 3001;
 THREE.WholePattern = 3002;
 THREE.PlanePattern = 3003;
-
 /**
  * @author mrdoob / http://mrdoob.com/
  */
@@ -21097,7 +21096,6 @@ THREE.WebGLRenderer = function ( parameters ) {
 			_gl.bufferData(_gl.ARRAY_BUFFER, uv2Array, hint);
 		}
 
-
 		if ( dirtyElements ) {
 
 			for ( f = 0, fl = chunk_faces3.length; f < fl; f ++ ) {
@@ -21772,17 +21770,21 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		var patternMode = uvMap.patternMode;
 		var globalRatio = (patternMode == THREE.WholePattern || patternMode == THREE.FacePattern) ? 4 : 0.4;
-		var uvdiff1, uvdiff2, uvdiff3, uvdiff4;
+		
 		var localUVMatrix;
 		var imageRes;
-		var v,v12,v32,v41,v43,v31;
+		
+		var uvdiff1, uvdiff2, uvdiff3, uvdiff4;
+		var v, v1, v2 ,v3, v4;
+		var v12, v32, v41, v43, v31;
+		var l12, l32, l41, l43, l31;
+		var face;
+		var uv;
+
 		var uSum = 0;
 		var vSum = 0;
-		var l43, l12, l32, l41;
 		var factoru,factorv;
-		var uvRef, uvArrRef;
-		var area = 0,area12 = 0;
-		var norm12;
+
 		var nb3 = 0, nb4 = 0;
 
 		var ratio = function(x,y) {
@@ -21790,7 +21792,7 @@ THREE.WebGLRenderer = function ( parameters ) {
 			else return Math.abs(x/y);
 		}
 
-		offset_uv = 0;
+		var offset_uv = 0;
 		/* ATTENTION AUCUN EFFET*/
 		imageRes = new THREE.Vector2(uvMap.image.width, uvMap.image.height);
 		if (imageRes.x == 0 || imageRes.y == 0) {
@@ -21851,8 +21853,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 			vSum = vSum == 0 ? ratio(uvdiff1.y,V12.y) : vSum;
 		}
 
-		for(f = 0, fl = chunk_faces3.length; f < fl; f++) {
-			fi = chunk_faces3[f];
+		for(var f = 0, fl = chunk_faces3.length; f < fl; f++) {
+			var fi = chunk_faces3[f];
 			uv = uvRef[fi];
 
 			if(uv === undefined) continue;
@@ -21886,8 +21888,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 
 			if (patternMode == THREE.FacePattern) {
-				for(i = 0; i < 3; i++) {
-					uvi = uv[i];
+				for(var i = 0; i < 3; i++) {
+					var uvi = uv[i];
 					if(i == 0) {
 						factoru = uvdiff3.x/l31 + uvdiff1.x/l12;
 						factorv = uvdiff3.y/l31 + uvdiff1.y/l12;
@@ -21983,9 +21985,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 		}
 
 		if (patternMode == THREE.PlanePattern) {
-			area = 1;
-			uvMap.patternU = uSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / uSum * area;
-			uvMap.patternV = vSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / vSum * area;
+			uvMap.patternU = uSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / uSum;
+			uvMap.patternV = vSum == 0 ? 1 : (4 * nb4 + 3 * nb3) * globalRatio / vSum;
 		}
 
 		if (patternMode == THREE.WholePattern) {
@@ -34444,6 +34445,8 @@ THREE.CameraHelper = function ( camera ) {
 	this.matrixAutoUpdate = false;
 
 	this.pointMap = pointMap;
+
+	this.update();
 
 };
 
