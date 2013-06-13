@@ -4747,8 +4747,9 @@ THREE.WebGLRenderer = function ( parameters ) {
 	};
 
 	// Objects refresh
+	// obj can be specified to refresh one object in particular TODO
 
-	this.initWebGLObjects = function ( scene ) {
+	this.initWebGLObjects = function ( scene, obj ) {
 
 		if ( !scene.__webglObjects ) {
 
@@ -5366,21 +5367,26 @@ THREE.WebGLRenderer = function ( parameters ) {
 			p_uniforms = program.uniforms,
 			m_uniforms = material.uniforms;
 
+		var programChanged = false;
+
 		if ( program !== _currentProgram ) {
 
 			_gl.useProgram( program );
 			_currentProgram = program;
 
 			refreshMaterial = true;
+			programChanged = true;
 
 		}
 
 		if ( material.id !== _currentMaterialId ) {
 
 			_currentMaterialId = material.id;
+			_currentMaterialCategory = material.category;
+			_oldMaterial = material;
 			refreshMaterial = true;
 
-		}
+		} 
 
 		if ( refreshMaterial || camera !== _currentCamera ) {
 
@@ -5421,109 +5427,117 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		if ( refreshMaterial ) {
 
-			// refresh uniforms common to several materials
+			if ( material.category && ( material.category == _currentMaterialCategory ) && !programChanged ) {
 
-			if ( fog && material.fog ) {
+				refreshAndLoadSpecificUniforms( program, m_uniforms, material );
 
-				refreshUniformsFog( m_uniforms, fog );
+			} else {
 
-			}
+				// refresh uniforms common to several materials
 
-			if ( material instanceof THREE.MeshPhongMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material.lights ) {
+				if ( fog && material.fog ) {
 
-				if ( _lightsNeedUpdate ) {
-
-					setupLights( program, lights );
-					_lightsNeedUpdate = false;
+					refreshUniformsFog( m_uniforms, fog );
 
 				}
 
-				refreshUniformsLights( m_uniforms, _lights );
+				if ( material instanceof THREE.MeshPhongMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material.lights ) {
 
-			}
+					if ( _lightsNeedUpdate ) {
 
-			if ( material instanceof THREE.MeshBasicMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material instanceof THREE.MeshPhongMaterial ) {
+						setupLights( program, lights );
+						_lightsNeedUpdate = false;
 
-				refreshUniformsCommon( m_uniforms, material );
+					}
 
-			}
-
-			// refresh single material specific uniforms
-
-			if ( material instanceof THREE.LineBasicMaterial ) {
-
-				refreshUniformsLine( m_uniforms, material );
-
-			} else if ( material instanceof THREE.LineDashedMaterial ) {
-
-				refreshUniformsLine( m_uniforms, material );
-				refreshUniformsDash( m_uniforms, material );
-
-			} else if ( material instanceof THREE.ParticleBasicMaterial ) {
-
-				refreshUniformsParticle( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshPhongMaterial ) {
-
-				refreshUniformsPhong( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshLambertMaterial ) {
-
-				refreshUniformsLambert( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshDepthMaterial ) {
-
-				m_uniforms.mNear.value = camera.near;
-				m_uniforms.mFar.value = camera.far;
-				m_uniforms.opacity.value = material.opacity;
-
-			} else if ( material instanceof THREE.MeshNormalMaterial ) {
-
-				m_uniforms.opacity.value = material.opacity;
-
-			}
-
-			if ( object.receiveShadow && ! material._shadowPass ) {
-
-				refreshUniformsShadow( m_uniforms, lights );
-
-			}
-
-			// load common uniforms
-
-			loadUniformsGeneric( program, material.uniformsList );
-
-			// load material specific uniforms
-			// (shader material also gets them for the sake of genericity)
-
-			if ( material instanceof THREE.ShaderMaterial ||
-				 material instanceof THREE.MeshPhongMaterial ||
-				 material.envMap ) {
-
-				if ( p_uniforms.cameraPosition !== null ) {
-
-					_vector3.getPositionFromMatrix( camera.matrixWorld );
-					_gl.uniform3f( p_uniforms.cameraPosition, _vector3.x, _vector3.y, _vector3.z );
+					refreshUniformsLights( m_uniforms, _lights );
 
 				}
 
-			}
+				if ( material instanceof THREE.MeshBasicMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material instanceof THREE.MeshPhongMaterial ) {
 
-			if ( material instanceof THREE.MeshPhongMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material instanceof THREE.ShaderMaterial ||
-				 material.skinning ) {
-
-				if ( p_uniforms.viewMatrix !== null ) {
-
-					_gl.uniformMatrix4fv( p_uniforms.viewMatrix, false, camera.matrixWorldInverse.elements );
+					refreshUniformsCommon( m_uniforms, material );
 
 				}
 
+				// refresh single material specific uniforms
+
+				if ( material instanceof THREE.LineBasicMaterial ) {
+
+					refreshUniformsLine( m_uniforms, material );
+
+				} else if ( material instanceof THREE.LineDashedMaterial ) {
+
+					refreshUniformsLine( m_uniforms, material );
+					refreshUniformsDash( m_uniforms, material );
+
+				} else if ( material instanceof THREE.ParticleBasicMaterial ) {
+
+
+					refreshUniformsParticle( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshPhongMaterial ) {
+
+					refreshUniformsPhong( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshLambertMaterial ) {
+
+					refreshUniformsLambert( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshDepthMaterial ) {
+
+					m_uniforms.mNear.value = camera.near;
+					m_uniforms.mFar.value = camera.far;
+					m_uniforms.opacity.value = material.opacity;
+
+				} else if ( material instanceof THREE.MeshNormalMaterial ) {
+
+					m_uniforms.opacity.value = material.opacity;
+
+				}
+
+				if ( object.receiveShadow && ! material._shadowPass ) {
+
+					refreshUniformsShadow( m_uniforms, lights );
+
+				}
+
+				// load common uniforms
+
+				loadUniformsGeneric( program, material.uniformsList );
+
+				// load material specific uniforms
+				// (shader material also gets them for the sake of genericity)
+
+				if ( material instanceof THREE.ShaderMaterial ||
+					 material instanceof THREE.MeshPhongMaterial ||
+					 material.envMap ) {
+
+					if ( p_uniforms.cameraPosition !== null ) {
+
+						_vector3.getPositionFromMatrix( camera.matrixWorld );
+						_gl.uniform3f( p_uniforms.cameraPosition, _vector3.x, _vector3.y, _vector3.z );
+
+					}
+
+				}
+
+				if ( material instanceof THREE.MeshPhongMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material instanceof THREE.ShaderMaterial ||
+					 material.skinning ) {
+
+					if ( p_uniforms.viewMatrix !== null ) {
+
+						_gl.uniformMatrix4fv( p_uniforms.viewMatrix, false, camera.matrixWorldInverse.elements );
+
+					}
+
+				}
 			}
 
 		}
@@ -5778,6 +5792,13 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		}
 
+	};
+
+	function refreshAndLoadSpecificUniforms ( program, uniforms, material ) {
+		if ( material.category == THREE.WNP_Luxens ) {
+			uniforms.diffuse.value = material.color;
+			loadUniformsGeneric( program, [ [ uniforms.diffuse, "diffuse" ] ] )
+		}
 	};
 
 	// Uniforms (load to GPU)

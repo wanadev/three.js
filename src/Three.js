@@ -247,3 +247,8 @@ THREE.NoPattern = 3000;
 THREE.FacePattern = 3001;
 THREE.WholePattern = 3002;
 THREE.PlanePattern = 3003;
+
+// WNP Optimisation
+
+THREE.WNP_Luxens = 4000;
+THREE.WNP_Texture = 4001;

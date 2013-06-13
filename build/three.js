@@ -31843,7 +31843,8 @@ THREE.CylinderGeometry.prototype = Object.create( THREE.Geometry.prototype );
  *  extrudePath: <THREE.CurvePath> // 3d spline path to extrude shape along. (creates Frames if .frames aren't defined)
  *  frames: <THREE.TubeGeometry.FrenetFrames> // containing arrays of tangents, normals, binormals
  *
- *  material: <int> // material index for front and back faces
+ *  materialFront: <int> // material index for front faces
+ *  materialBack: <int> // material index for back faces
  *  extrudeMaterial: <int> // material index for extrusion and beveled faces
  *  uvGenerator: <Object> // object that provides UV generator functions
  *
@@ -31906,7 +31907,8 @@ THREE.ExtrudeGeometry.prototype.addShape = function ( shape, options ) {
 	var extrudePath = options.extrudePath;
 	var extrudePts, extrudeByPath = false;
 
-	var material = options.material;
+	var materialFront = options.materialFront;
+	var materialBack = options.materialBack;
 	var extrudeMaterial = options.extrudeMaterial;
 
 	// Use default WorldUVGenerator if no UV generators are specified.
@@ -32460,7 +32462,7 @@ THREE.ExtrudeGeometry.prototype.addShape = function ( shape, options ) {
 		c += shapesOffset;
 
 		// normal, color, material
-		scope.faces.push( new THREE.Face3( a, b, c, null, null, material ) );
+		scope.faces.push( new THREE.Face3( a, b, c, null, null, isBottom ? materialBack : materialFront ) );
 
 		var uvs = isBottom ? uvgen.generateBottomUV( scope, shape, options, a, b, c ) : uvgen.generateTopUV( scope, shape, options, a, b, c );
 
