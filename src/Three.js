@@ -251,4 +251,8 @@ THREE.PlanePattern = 3003;
 // WNP Optimisation
 
 THREE.WNP_Luxens = 4000;
-THREE.WNP_Texture = 4001;
+THREE.WNP_White = 4001;
+THREE.WNP_Polished = 4002;
+THREE.WNP_Wood = 4010;
+THREE.WNP_Glass = 4011;
+THREE.WNP_Metal = 4012;

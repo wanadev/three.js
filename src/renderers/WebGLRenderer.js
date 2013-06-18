@@ -124,6 +124,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 	_currentProgram = null,
 	_currentFramebuffer = null,
 	_currentMaterialId = -1,
+	_currentMaterialCategory = null,
+	_oldMaterial = null,
 	_currentGeometryGroupHash = null,
 	_currentCamera = null,
 	_geometryGroupCounter = 0,
@@ -4079,6 +4081,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	function disableAttributes() {
 
+		return; // Pour l'instant ça marche ...
+
 		for ( var attribute in _enabledAttributes ) {
 
 			if ( _enabledAttributes[ attribute ] ) {
@@ -4259,6 +4263,38 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	};
 
+	function categorySort ( a, b ) {
+
+		if ( a.opaque && b.transparent ) { 
+
+			// Les transparents sont à la fin
+
+			return -1; 
+
+		}
+
+		if ( a.transparent && b.opaque ) { 
+
+			return 1; 
+
+		}
+
+		if ( a.transparent && b.transparent ) { 
+		
+			return painterSortStable ( a, b );
+		
+		}
+
+		if ( a.opaque && b.opaque ) { 
+
+			return ( ( a.opaque.category || 0 ) - ( b.opaque.category || 0 ) );
+		
+		}
+
+		return 0;
+
+	};
+
 
 	// Rendering
 
@@ -4367,7 +4403,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		if ( this.sortObjects ) {
 
-			renderList.sort( painterSortStable );
+			// renderList.sort( painterSortStable );
+			renderList.sort( categorySort );
 
 		}
 
@@ -4747,9 +4784,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 	};
 
 	// Objects refresh
-	// obj can be specified to refresh one object in particular TODO
 
-	this.initWebGLObjects = function ( scene, obj ) {
+	this.initWebGLObjects = function ( scene ) {
 
 		if ( !scene.__webglObjects ) {
 
@@ -5373,7 +5409,6 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 			_gl.useProgram( program );
 			_currentProgram = program;
-
 			refreshMaterial = true;
 			programChanged = true;
 
@@ -5428,11 +5463,9 @@ THREE.WebGLRenderer = function ( parameters ) {
 		if ( refreshMaterial ) {
 
 			if ( material.category && ( material.category == _currentMaterialCategory ) && !programChanged ) {
-
 				refreshAndLoadSpecificUniforms( program, m_uniforms, material );
 
 			} else {
-
 				// refresh uniforms common to several materials
 
 				if ( fog && material.fog ) {
@@ -5794,12 +5827,54 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	};
 
+	// Optimisation spécifique à WANAPLAN
+
 	function refreshAndLoadSpecificUniforms ( program, uniforms, material ) {
-		if ( material.category == THREE.WNP_Luxens ) {
-			uniforms.diffuse.value = material.color;
-			loadUniformsGeneric( program, [ [ uniforms.diffuse, "diffuse" ] ] )
+
+		var shortUniformList = [];
+
+		if ( material.category ) {
+
+			if ( _this.gammaInput ) {
+
+				uniforms.diffuse.value.copyGammaToLinear( material.color );
+
+			} else {
+
+				uniforms.diffuse.value = material.color;
+
+			}
+
+			shortUniformList.push( [ uniforms.diffuse, "diffuse" ] );
+			
 		}
-	};
+
+		if ( material.category == THREE.WNP_Polished ) {
+
+			refreshUniformsCommon( uniforms, material );
+
+			shortUniformList.push( [ uniforms.opacity, "opacity" ],
+			 					   [ uniforms.map, "map" ],
+			 					   [ uniforms.specularMap, "specularMap" ],
+			 					   [ uniforms.bumpMap, "bumpMap" ],
+			 					   [ uniforms.normalMap, "normalMap" ],
+			 					   [ uniforms.offsetRepeat, "offsetRepeat" ]
+
+			 					   );
+
+		} else if ( material.category == THREE.WNP_Wood ) {
+
+			refreshUniformsCommon( uniforms, material );
+
+			shortUniformList.push( [ uniforms.offsetRepeat, "offsetRepeat" ]
+
+			 					   );
+
+		}
+
+		loadUniformsGeneric( program, shortUniformList );
+
+	}
 
 	// Uniforms (load to GPU)
 

@@ -18,7 +18,8 @@ THREE.GeometryUtils = {
 		faces1 = geometry1.faces,
 		faces2 = geometry2.faces,
 		uvs1 = geometry1.faceVertexUvs[ 0 ],
-		uvs2 = geometry2.faceVertexUvs[ 0 ];
+		uvs2 = geometry2.faceVertexUvs[ 0 ],
+		constantRange = constantRange || -1;
 
 		if ( materialIndexOffset === undefined ) materialIndexOffset = 0;
 

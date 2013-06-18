@@ -8,6 +8,7 @@ THREE.Material = function () {
 	this.id = THREE.MaterialIdCount ++;
 
 	this.name = '';
+	this.category = null; // Optimisation WNP
 
 	this.side = THREE.FrontSide;
 
@@ -90,7 +91,8 @@ THREE.Material.prototype = {
 		if ( material === undefined ) material = new THREE.Material();
 
 		material.name = this.name;
-
+		material.category = this.category;
+		
 		material.side = this.side;
 
 		material.opacity = this.opacity;

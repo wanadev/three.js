@@ -247,7 +247,15 @@ THREE.NoPattern = 3000;
 THREE.FacePattern = 3001;
 THREE.WholePattern = 3002;
 THREE.PlanePattern = 3003;
-/**
+
+// WNP Optimisation
+
+THREE.WNP_Luxens = 4000;
+THREE.WNP_White = 4001;
+THREE.WNP_Polished = 4002;
+THREE.WNP_Wood = 4010;
+THREE.WNP_Glass = 4011;
+THREE.WNP_Metal = 4012;/**
  * @author mrdoob / http://mrdoob.com/
  */
 
@@ -11724,6 +11732,7 @@ THREE.Material = function () {
 	this.id = THREE.MaterialIdCount ++;
 
 	this.name = '';
+	this.category = null; // Optimisation WNP
 
 	this.side = THREE.FrontSide;
 
@@ -11806,7 +11815,8 @@ THREE.Material.prototype = {
 		if ( material === undefined ) material = new THREE.Material();
 
 		material.name = this.name;
-
+		material.category = this.category;
+		
 		material.side = this.side;
 
 		material.opacity = this.opacity;
@@ -18550,6 +18560,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 	_currentProgram = null,
 	_currentFramebuffer = null,
 	_currentMaterialId = -1,
+	_currentMaterialCategory = null,
+	_oldMaterial = null,
 	_currentGeometryGroupHash = null,
 	_currentCamera = null,
 	_geometryGroupCounter = 0,
@@ -22505,6 +22517,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	function disableAttributes() {
 
+		return; // Pour l'instant ça marche ...
+
 		for ( var attribute in _enabledAttributes ) {
 
 			if ( _enabledAttributes[ attribute ] ) {
@@ -22685,6 +22699,38 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 	};
 
+	function categorySort ( a, b ) {
+
+		if ( a.opaque && b.transparent ) { 
+
+			// Les transparents sont à la fin
+
+			return -1; 
+
+		}
+
+		if ( a.transparent && b.opaque ) { 
+
+			return 1; 
+
+		}
+
+		if ( a.transparent && b.transparent ) { 
+		
+			return painterSortStable ( a, b );
+		
+		}
+
+		if ( a.opaque && b.opaque ) { 
+
+			return ( ( a.opaque.category || 0 ) - ( b.opaque.category || 0 ) );
+		
+		}
+
+		return 0;
+
+	};
+
 
 	// Rendering
 
@@ -22793,7 +22839,8 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		if ( this.sortObjects ) {
 
-			renderList.sort( painterSortStable );
+			// renderList.sort( painterSortStable );
+			renderList.sort( categorySort );
 
 		}
 
@@ -23792,21 +23839,25 @@ THREE.WebGLRenderer = function ( parameters ) {
 			p_uniforms = program.uniforms,
 			m_uniforms = material.uniforms;
 
+		var programChanged = false;
+
 		if ( program !== _currentProgram ) {
 
 			_gl.useProgram( program );
 			_currentProgram = program;
-
 			refreshMaterial = true;
+			programChanged = true;
 
 		}
 
 		if ( material.id !== _currentMaterialId ) {
 
 			_currentMaterialId = material.id;
+			_currentMaterialCategory = material.category;
+			_oldMaterial = material;
 			refreshMaterial = true;
 
-		}
+		} 
 
 		if ( refreshMaterial || camera !== _currentCamera ) {
 
@@ -23847,109 +23898,115 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 		if ( refreshMaterial ) {
 
-			// refresh uniforms common to several materials
+			if ( material.category && ( material.category == _currentMaterialCategory ) && !programChanged ) {
+				refreshAndLoadSpecificUniforms( program, m_uniforms, material );
 
-			if ( fog && material.fog ) {
+			} else {
+				// refresh uniforms common to several materials
 
-				refreshUniformsFog( m_uniforms, fog );
+				if ( fog && material.fog ) {
 
-			}
-
-			if ( material instanceof THREE.MeshPhongMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material.lights ) {
-
-				if ( _lightsNeedUpdate ) {
-
-					setupLights( program, lights );
-					_lightsNeedUpdate = false;
+					refreshUniformsFog( m_uniforms, fog );
 
 				}
 
-				refreshUniformsLights( m_uniforms, _lights );
+				if ( material instanceof THREE.MeshPhongMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material.lights ) {
 
-			}
+					if ( _lightsNeedUpdate ) {
 
-			if ( material instanceof THREE.MeshBasicMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material instanceof THREE.MeshPhongMaterial ) {
+						setupLights( program, lights );
+						_lightsNeedUpdate = false;
 
-				refreshUniformsCommon( m_uniforms, material );
+					}
 
-			}
-
-			// refresh single material specific uniforms
-
-			if ( material instanceof THREE.LineBasicMaterial ) {
-
-				refreshUniformsLine( m_uniforms, material );
-
-			} else if ( material instanceof THREE.LineDashedMaterial ) {
-
-				refreshUniformsLine( m_uniforms, material );
-				refreshUniformsDash( m_uniforms, material );
-
-			} else if ( material instanceof THREE.ParticleBasicMaterial ) {
-
-				refreshUniformsParticle( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshPhongMaterial ) {
-
-				refreshUniformsPhong( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshLambertMaterial ) {
-
-				refreshUniformsLambert( m_uniforms, material );
-
-			} else if ( material instanceof THREE.MeshDepthMaterial ) {
-
-				m_uniforms.mNear.value = camera.near;
-				m_uniforms.mFar.value = camera.far;
-				m_uniforms.opacity.value = material.opacity;
-
-			} else if ( material instanceof THREE.MeshNormalMaterial ) {
-
-				m_uniforms.opacity.value = material.opacity;
-
-			}
-
-			if ( object.receiveShadow && ! material._shadowPass ) {
-
-				refreshUniformsShadow( m_uniforms, lights );
-
-			}
-
-			// load common uniforms
-
-			loadUniformsGeneric( program, material.uniformsList );
-
-			// load material specific uniforms
-			// (shader material also gets them for the sake of genericity)
-
-			if ( material instanceof THREE.ShaderMaterial ||
-				 material instanceof THREE.MeshPhongMaterial ||
-				 material.envMap ) {
-
-				if ( p_uniforms.cameraPosition !== null ) {
-
-					_vector3.getPositionFromMatrix( camera.matrixWorld );
-					_gl.uniform3f( p_uniforms.cameraPosition, _vector3.x, _vector3.y, _vector3.z );
+					refreshUniformsLights( m_uniforms, _lights );
 
 				}
 
-			}
+				if ( material instanceof THREE.MeshBasicMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material instanceof THREE.MeshPhongMaterial ) {
 
-			if ( material instanceof THREE.MeshPhongMaterial ||
-				 material instanceof THREE.MeshLambertMaterial ||
-				 material instanceof THREE.ShaderMaterial ||
-				 material.skinning ) {
-
-				if ( p_uniforms.viewMatrix !== null ) {
-
-					_gl.uniformMatrix4fv( p_uniforms.viewMatrix, false, camera.matrixWorldInverse.elements );
+					refreshUniformsCommon( m_uniforms, material );
 
 				}
 
+				// refresh single material specific uniforms
+
+				if ( material instanceof THREE.LineBasicMaterial ) {
+
+					refreshUniformsLine( m_uniforms, material );
+
+				} else if ( material instanceof THREE.LineDashedMaterial ) {
+
+					refreshUniformsLine( m_uniforms, material );
+					refreshUniformsDash( m_uniforms, material );
+
+				} else if ( material instanceof THREE.ParticleBasicMaterial ) {
+
+
+					refreshUniformsParticle( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshPhongMaterial ) {
+
+					refreshUniformsPhong( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshLambertMaterial ) {
+
+					refreshUniformsLambert( m_uniforms, material );
+
+				} else if ( material instanceof THREE.MeshDepthMaterial ) {
+
+					m_uniforms.mNear.value = camera.near;
+					m_uniforms.mFar.value = camera.far;
+					m_uniforms.opacity.value = material.opacity;
+
+				} else if ( material instanceof THREE.MeshNormalMaterial ) {
+
+					m_uniforms.opacity.value = material.opacity;
+
+				}
+
+				if ( object.receiveShadow && ! material._shadowPass ) {
+
+					refreshUniformsShadow( m_uniforms, lights );
+
+				}
+
+				// load common uniforms
+
+				loadUniformsGeneric( program, material.uniformsList );
+
+				// load material specific uniforms
+				// (shader material also gets them for the sake of genericity)
+
+				if ( material instanceof THREE.ShaderMaterial ||
+					 material instanceof THREE.MeshPhongMaterial ||
+					 material.envMap ) {
+
+					if ( p_uniforms.cameraPosition !== null ) {
+
+						_vector3.getPositionFromMatrix( camera.matrixWorld );
+						_gl.uniform3f( p_uniforms.cameraPosition, _vector3.x, _vector3.y, _vector3.z );
+
+					}
+
+				}
+
+				if ( material instanceof THREE.MeshPhongMaterial ||
+					 material instanceof THREE.MeshLambertMaterial ||
+					 material instanceof THREE.ShaderMaterial ||
+					 material.skinning ) {
+
+					if ( p_uniforms.viewMatrix !== null ) {
+
+						_gl.uniformMatrix4fv( p_uniforms.viewMatrix, false, camera.matrixWorldInverse.elements );
+
+					}
+
+				}
 			}
 
 		}
@@ -24205,6 +24262,55 @@ THREE.WebGLRenderer = function ( parameters ) {
 		}
 
 	};
+
+	// Optimisation spécifique à WANAPLAN
+
+	function refreshAndLoadSpecificUniforms ( program, uniforms, material ) {
+
+		var shortUniformList = [];
+
+		if ( material.category ) {
+
+			if ( _this.gammaInput ) {
+
+				uniforms.diffuse.value.copyGammaToLinear( material.color );
+
+			} else {
+
+				uniforms.diffuse.value = material.color;
+
+			}
+
+			shortUniformList.push( [ uniforms.diffuse, "diffuse" ] );
+			
+		}
+
+		if ( material.category == THREE.WNP_Polished ) {
+
+			refreshUniformsCommon( uniforms, material );
+
+			shortUniformList.push( [ uniforms.opacity, "opacity" ],
+			 					   [ uniforms.map, "map" ],
+			 					   [ uniforms.specularMap, "specularMap" ],
+			 					   [ uniforms.bumpMap, "bumpMap" ],
+			 					   [ uniforms.normalMap, "normalMap" ],
+			 					   [ uniforms.offsetRepeat, "offsetRepeat" ]
+
+			 					   );
+
+		} else if ( material.category == THREE.WNP_Wood ) {
+
+			refreshUniformsCommon( uniforms, material );
+
+			shortUniformList.push( [ uniforms.offsetRepeat, "offsetRepeat" ]
+
+			 					   );
+
+		}
+
+		loadUniformsGeneric( program, shortUniformList );
+
+	}
 
 	// Uniforms (load to GPU)
 
@@ -26064,8 +26170,7 @@ THREE.WebGLRenderer = function ( parameters ) {
 	this.addPostPlugin( new THREE.SpritePlugin() );
 	this.addPostPlugin( new THREE.LensFlarePlugin() );
 
-};
-/**
+};/**
  * @author szimek / https://github.com/szimek/
  * @author alteredq / http://alteredqualia.com/
  */
@@ -26282,7 +26387,7 @@ THREE.GeometryUtils = {
 
 	// Merge two geometries or geometry and geometry from object (using object's transform)
 
-	merge: function ( geometry1, object2 /* mesh | geometry */, materialIndexOffset ) {
+	merge: function ( geometry1, object2 /* mesh | geometry */, materialIndexOffset, constantRange ) {
 
 		var matrix, normalMatrix,
 		vertexOffset = geometry1.vertices.length,
@@ -26293,7 +26398,8 @@ THREE.GeometryUtils = {
 		faces1 = geometry1.faces,
 		faces2 = geometry2.faces,
 		uvs1 = geometry1.faceVertexUvs[ 0 ],
-		uvs2 = geometry2.faceVertexUvs[ 0 ];
+		uvs2 = geometry2.faceVertexUvs[ 0 ],
+		constantRange = constantRange || -1;
 
 		if ( materialIndexOffset === undefined ) materialIndexOffset = 0;
 
@@ -26370,7 +26476,11 @@ THREE.GeometryUtils = {
 
 			}
 
-			faceCopy.materialIndex = face.materialIndex + materialIndexOffset;
+			if (face.materialIndex <= constantRange) { 
+				faceCopy.materialIndex = face.materialIndex;
+			} else {
+				faceCopy.materialIndex = face.materialIndex + materialIndexOffset;
+			}
 
 			faceCopy.centroid.copy( face.centroid );
 
