@@ -4280,8 +4280,9 @@ THREE.WebGLRenderer = function ( parameters ) {
 		}
 
 		if ( a.transparent && b.transparent ) { 
+
 		
-			return painterSortStable ( a, b );
+			return ( a.transparent.category === THREE.WNP_WeakTransparency ? 1 : ( b.transparent.category === THREE.WNP_WeakTransparency ? -1 : painterSortStable ( a, b ) ) );
 		
 		}
 
@@ -5417,7 +5418,7 @@ THREE.WebGLRenderer = function ( parameters ) {
 		if ( material.id !== _currentMaterialId ) {
 
 			_currentMaterialId = material.id;
-			_currentMaterialCategory = material.category;
+			_currentMaterialCategory = _oldMaterial ? _oldMaterial.category : null;
 			_oldMaterial = material;
 			refreshMaterial = true;
 
@@ -5870,6 +5871,37 @@ THREE.WebGLRenderer = function ( parameters ) {
 
 			 					   );
 
+		} else if ( material.category == THREE.WNP_Metal ) {
+
+			refreshUniformsPhong( uniforms, material );
+			refreshUniformsCommon( uniforms, material );
+
+			if ( _this.gammaInput ) {
+
+				uniforms.reflectivity.value = material.reflectivity;
+
+			} else {
+
+				uniforms.reflectivity.value = material.reflectivity;
+
+			}
+
+			shortUniformList.push( [ uniforms.map, "map" ],
+								   [ uniforms.envMap, "envMap" ],
+								   [ uniforms.ambient, "ambient" ],
+								   [ uniforms.specular, "specular" ],
+								   [ uniforms.emissive, "emissive" ],
+								   [ uniforms.reflectivity, "reflectivity" ],
+								   [ uniforms.combine, "combine" ],
+								   [ uniforms.shininess, "shininess" ]
+
+			 					   );
+
+		} else if ( material.category == THREE.WNP_White ) {
+			
+			uniforms.map.value = material.map;
+
+			shortUniformList.push( [ uniforms.map, "map" ]);
 		}
 
 		loadUniformsGeneric( program, shortUniformList );

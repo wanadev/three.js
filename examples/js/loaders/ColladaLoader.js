@@ -3239,6 +3239,7 @@ THREE.ColladaLoader = function () {
 
 				if (props.diffuse != undefined) props.color = props.diffuse;
 				this.material = new THREE.MeshPhongMaterial( props );
+				//this.material.category = THREE.WNP_Polished;
 				break;
 
 			case 'lambert':

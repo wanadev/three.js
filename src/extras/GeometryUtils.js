@@ -110,6 +110,8 @@ THREE.GeometryUtils = {
 
 			}
 
+			faceCopy.magnetismCollider = face.magnetismCollider;
+
 			faces1.push( faceCopy );
 
 		}
@@ -129,6 +131,9 @@ THREE.GeometryUtils = {
 			uvs1.push( uvCopy );
 
 		}
+
+		// reset cache of vertices as it now will be changing.
+		geometry1.__tmpVertices = undefined;
 
 	},
 
